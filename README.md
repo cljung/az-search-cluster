@@ -9,9 +9,10 @@
 
 
 This template allows you to deploy a ElasticSearch cluster on CentOS Linux VMs. The cluster consists of publically load balanced proxy nodes that exposes port 80 and internally load balanced worker nodes running ElasticSearch.
+The public endpoint will be <your-prefix>proxy.<your-location>.cloudapp.azure.com
 
 # About the template
-The JSON Template lets you specify VM name prefix, VM Sizes for proxy and worker nodes, number of proxy and worker nodes, name of storage account to be used and virtual network details.
+The JSON Template lets you specify prefix that is used for naming all resources, VM Sizes for proxy and worker nodes, number of proxy and worker nodes, name of storage account to be used and virtual network details.
 
 Both the proxy and worker nodes have a bash script that runs via the CustomScriptExtension during vm creation to customize the VMs. Once the search cluster is ready, Shakespeare quotes are loaded as test data.
 
