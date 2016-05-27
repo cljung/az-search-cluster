@@ -28,8 +28,14 @@ To tear it down you run the below, which deletes the resource group and all its 
 
   ./delete-search-cluster.sh -o delete -n your-prefix
  
+# Nodes and Virtual Network
+
+The proxy nodes lives in a subnet named proxysubnet with dynamic ip addresses of 10.10.1.4 and on. The worker nodes lives in a subnet named workersubnet and have statis ip addresses where the first node gets 10.10.2.101, the second 10.10.2.102 and so on. The internal load balancer has ip address 10.10.2.100.
  
 # Remoting in to the VMs
 
 The proxy load balancer creates a NAT rule named "ssh0" but it is not connected to any VM. If you want to SSH into VMs in the cluster, attach this rule to one of the proxy nodes and use that as a jump box
+
+# Testing
+
 
