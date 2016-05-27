@@ -67,3 +67,4 @@ POST /shakespeare/line/_search
 }
 </code>
 </pre>
+<img src="https://raw.githubusercontent.com/cljung/az-search-cluster/masterDenmark-rotten.png">
