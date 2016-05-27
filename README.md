@@ -30,7 +30,7 @@ To tear it down you run the below, which deletes the resource group and all its 
  
 # Nodes and Virtual Network
 
-The proxy nodes lives in a subnet named proxysubnet with dynamic ip addresses of 10.10.1.4 and on. The worker nodes lives in a subnet named workersubnet and have statis ip addresses where the first node gets 10.10.2.101, the second 10.10.2.102 and so on. The internal load balancer has ip address 10.10.2.100.
+The proxy nodes lives in a subnet named proxysubnet with dynamic ip addresses of 10.10.1.4 and on. The worker nodes lives in a subnet named workersubnet and have static ip addresses where the first node gets 10.10.2.101, the second 10.10.2.102 and so on. The internal load balancer has ip address 10.10.2.100.
  
 # Remoting in to the VMs
 
@@ -38,4 +38,17 @@ The proxy load balancer creates a NAT rule named "ssh0" but it is not connected 
 
 # Testing
 
+Easiest way to test that it works is to use <a href="https://www.elastic.co/blog/found-sense-a-cool-json-aware-interface-to-elasticsearch">Sense</a>, which is a JSON aware interface to Elastic Search, and point it to your public name, like  
 
+http://<your-prefix>proxy.westeurope.cloudapp.azure.com
+
+and issue a query like below
+
+POST /shakespeare/line/_search
+{
+ "query":{
+   "match": {
+      "text_entry": "Denmark rotten"
+   }
+ }    
+}
