@@ -1,0 +1,622 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Admin username"
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Admin password"
+      }
+    },
+    "NamePrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "Prefix to use for VM names"
+      }
+    },
+    "vmSizeWorkers": {
+      "type": "string",
+      "metadata": {
+        "description": "VM Size Worker Nodes"
+      }
+    },
+    "vmSizeProxy": {
+      "type": "string",
+      "metadata": {
+        "description": "VM Size Proxy Nodes"
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing StorageAccount to use for VHDs"
+      }
+    },
+    "virtualNetworkName": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing VirtualNetwork"
+      }
+    },
+    "subnetNameWorkers": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing Subnet to place workers in"
+      }
+    },
+    "subnetNameProxy": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing Subnet to place master in"
+      }
+    },
+    "WorkerNodesCount": {
+      "type": "int",
+      "metadata": {
+        "description": "Number of worker nodes in the ElasticSearch cluster"
+      }
+    },
+    "ProxyNodesCount": {
+      "type": "int",
+      "metadata": {
+        "description": "Number of proxy nodes in the ElasticSearch cluster"
+      }
+    }
+  },
+  "variables": {
+    "apiVersion": "2015-06-15",
+    "location": "[resourceGroup().location]",
+    "vmSizeWorkers": "[parameters('vmSizeWorkers')]",
+    "vmSizeProxy": "[parameters('vmSizeProxy')]",
+    "clusterName": "elasticcluster",
+    "numberOfNodes": "[parameters('WorkerNodesCount')]",   
+    "numberOfProxy": "[parameters('ProxyNodesCount')]",   
+    "imagePublisher" : "OpenLogic",
+    "imageOffer" : "CentOS",
+    "imageSku" : "7.2",
+
+    "vmWorkerName": "[concat(parameters('NamePrefix'), 'vmwk')]",
+    "vmProxyName": "[concat(parameters('NamePrefix'), 'vmpx')]",
+    "proxyDomainName" : "[concat(parameters('NamePrefix'), 'proxy')]",
+    "proxyFqdn": "[concat(variables('proxyDomainName'),'.',variables('location'),'.cloudapp.azure.com')]",    
+
+    "availabilitySetName": "[concat(parameters('NamePrefix'), '-worker-av')]",
+    "availabilitySetNameProxy": "[concat(parameters('NamePrefix'), '-proxy-av')]",
+    "publicIPAddressSuffix": "-pip", 
+    "publicIPAddressType": "Dynamic",    
+
+    "storageName" : "[parameters('storageAccountName')]",
+    "storageAccountType": "Standard_LRS",
+    "dataDiskSize": "50",
+
+    "vnetName":  "[parameters('virtualNetworkName')]" ,
+    "vnetID": "[resourceId('Microsoft.Network/virtualNetworks',variables('vnetName'))]",
+    "vnetAddressSpace": "10.10.0.0/16",
+    
+    "subnetProxyPrefix": "10.10.1.0/24",
+    "subnetNameProxy": "[parameters('subnetNameProxy')]",
+    "subnetRefProxy": "[concat(variables('vnetID'),'/subnets/',variables ('subnetNameProxy'))]",
+
+    "subnetWorkerPrefix": "10.10.2.0/24",    
+    "subnetNameWorkers": "[parameters('subnetNameWorkers')]",
+    "subnetNameWorkersIP": "10.10.2.10",
+    "subnetRefWorkers": "[concat(variables('vnetID'),'/subnets/',variables ('subnetNameWorkers'))]",
+    
+    "networkInterfaceName": "-nic",
+    "lbNamePip": "[concat(parameters('NamePrefix'), '-worker-lb-pip')]", 
+    "lbIpAddressES": "10.10.2.100",
+    "lbName": "[concat(parameters('NamePrefix'), '-worker-lb')]", 
+    "lbID": "[resourceId('Microsoft.Network/loadBalancers',variables('lbName'))]",
+    "LBFrontendName": "[concat(parameters('NamePrefix'), '-lbfe')]",
+    "LBBackendName": "[concat(parameters('NamePrefix'), '-lbbe')]",
+    "LBNatRule1": "[concat(parameters('NamePrefix'), '-lbnr1')]",
+    "lbNameProxy": "[concat(parameters('NamePrefix'), '-proxy-lb')]", 
+    "lbIDProxy": "[resourceId('Microsoft.Network/loadBalancers',variables('lbNameProxy'))]",
+    "LBFrontendNameProxy": "[concat(parameters('NamePrefix'), '-lbfe-p')]",
+    "LBBackendNameProxy": "[concat(parameters('NamePrefix'), '-lbbe-p')]",
+
+    "scriptBaseUrl": "https://raw.githubusercontent.com/cljung/az-search-cluster/master/",
+    "elasticScript": "esinstallworker.sh",
+    "installScripts": [
+        "[concat(variables('scriptBaseUrl'), variables('elasticScript'))]"
+    ],
+    "elasticScriptP": "esinstallproxy.sh",
+    "installScriptsP": [
+        "[concat(variables('scriptBaseUrl'), variables('elasticScriptP'))]",
+        "[concat(variables('scriptBaseUrl'), 'shakespeare.sh')]",
+        "[concat(variables('scriptBaseUrl'), 'rproxy.js')]"
+    ]
+  },
+  "resources": [
+    { 
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Storage/storageAccounts", 
+      "name": "[variables('storageName')]", 
+      "location": "[variables('location')]",
+      "properties": { 
+          "accountType": "[variables('storageAccountType')]" 
+       } 
+     }, 
+      {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[variables('vnetName')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('vnetAddressSpace')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetNameProxy')]",
+            "properties": {
+              "addressPrefix": "[variables('subnetProxyPrefix')]"
+            }
+          },
+          {
+            "name": "[variables('subnetNameWorkers')]",
+            "properties": {
+              "addressPrefix": "[variables('subnetWorkerPrefix')]"
+            }
+          }
+        ]
+      }
+    },
+     
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Compute/availabilitySets",
+      "name": "[variables('availabilitySetName')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "platformUpdateDomainCount": 12,
+        "platformFaultDomainCount": 3
+      },
+      "tags": {
+        "displayName": "AvailabilitySet"
+      }
+    },
+
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[variables('LBName')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[variables('vnetID')]"
+      ],
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "[variables('LBFrontendName')]",
+            "properties": {
+              "subnet": {
+                "id": "[variables('subnetRefWorkers')]"
+              },
+              "privateIPAddress": "[variables('lbIpAddressES')]",
+              "privateIPAllocationMethod": "Static"              
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('LBBackendName')]"
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "Name": "es-lbrule-9200",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(variables('lbID'), '/frontendIpConfigurations/',variables('LBFrontendName'))]"
+              },
+              "backendAddressPool": {
+                "id": "[concat(variables('lbID'), '/backendAddressPools/',variables('LBBackendName'))]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 9200,
+              "backendPort": 9200,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 5,
+              "probe": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers',variables('LBName')),'/probes/es-lbprobe-9200')]"
+              }
+            }
+          },
+          {
+            "Name": "es-lbrule-9300",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(variables('lbID'), '/frontendIpConfigurations/',variables('LBFrontendName'))]"
+              },
+              "backendAddressPool": {
+                "id": "[concat(variables('lbID'), '/backendAddressPools/',variables('LBBackendName'))]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 9300,
+              "backendPort": 9300,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 5
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "es-lbprobe-9200",
+            "properties": {
+              "protocol": "Tcp",
+              "port": 9200,
+              "intervalInSeconds": 30,
+              "numberOfProbes": 3
+            }
+          }
+        ]                
+      },
+      "tags": {
+        "displayName": "LoadBalancer"
+      }
+    },
+    
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat(variables('vmWorkerName'), copyindex(1), variables('networkInterfaceName'))]",
+      "location": "[variables('location')]",
+      "tags": {
+        "displayName": "NetworkInterface"
+      },
+      "copy": {
+        "name": "nicLoop",
+        "count": "[variables('numberOfNodes')]"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Network/loadBalancers/', variables('LBName'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Static",
+			        "privateIPAddress" :"[concat(variables('subnetNameWorkersIP'), copyindex(1))]",
+              "subnet": {
+                "id": "[variables('subnetRefWorkers')]"
+              },
+              "LoadBalancerBackendAddressPools": [
+                {
+                "id": "[concat(variables('lbID'), '/backendAddressPools/',variables('LBBackendName'))]"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[concat(variables('vmWorkerName'), copyindex(1))]",
+      "copy": {
+        "name": "virtualMachineLoop",
+        "count": "[variables('numberOfNodes')]"
+      },
+      "location": "[variables('location')]",
+      "tags": {
+        "displayName": "VirtualMachines"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Storage/storageAccounts/', variables('storageName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', variables('vmWorkerName'), copyindex(1), variables('networkInterfaceName'))]",
+        "[concat('Microsoft.Compute/availabilitySets/', variables('availabilitySetName'))]"
+      ],
+      "properties": {
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets',variables('availabilitySetName'))]"
+        },
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSizeWorkers')]"
+        },
+        "osProfile": {
+          "computerName": "[concat(variables('vmWorkerName'), copyindex(1))]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "[variables('imagePublisher')]",
+            "offer": "[variables('imageOffer')]",
+            "sku": "[variables('imageSku')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "osdisk",
+            "vhd": {
+              "uri": "[concat('http://',variables('storageName'),'.blob.core.windows.net/vhds/', variables('vmWorkerName'), copyindex(1), '_osdisk', '.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          },
+           "dataDisks": [
+            {
+              "name": "datadisk1",
+              "diskSizeGB": "[variables('dataDiskSize')]",
+              "lun": 0,
+              "vhd": {
+                "uri": "[concat('http://',variables('storageName'),'.blob.core.windows.net/vhds/',variables('vmWorkerName'), copyindex(1), '_dataDisk1.vhd')]"
+              },
+              "caching": "None",
+              "createOption": "Empty"
+            }
+           ]
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('vmWorkerName'),copyindex(1), variables('networkInterfaceName')))]"
+            }
+          ]
+        }
+      }
+    },
+    {
+        "type": "Microsoft.Compute/virtualMachines/extensions",
+        "name": "[concat(variables('vmWorkerName'), copyindex(1), '/installelasticsearch')]",
+        "apiVersion": "[variables('apiVersion')]",
+		  "copy": {
+			"name": "virtualMachineExtensions",
+			"count": "[variables('numberOfNodes')]"
+		  },
+        "location": "[variables('location')]",
+        "dependsOn": [
+          "[concat('Microsoft.Compute/virtualMachines/', variables('vmWorkerName'), copyindex(1))]"
+          ],
+        "properties": {
+          "publisher": "Microsoft.OSTCExtensions",
+          "type": "CustomScriptForLinux",
+          "typeHandlerVersion": "1.3",
+          "settings": {
+            "fileUris": "[variables('installScripts')]",
+            "commandToExecute": "[concat('bash ',variables('elasticScript'), ' ', variables('clusterName'), ' ', variables('numberOfNodes'), ' ', variables('subnetNameWorkersIP'), ' ', variables('storageName'), ' ', listKeys(resourceId('Microsoft.Storage/storageAccounts',variables('storageName')) ,variables('apiVersion')).key1, ' No')]"
+          }
+        }
+      },
+  
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Compute/availabilitySets",
+      "name": "[variables('availabilitySetNameProxy')]",
+      "location": "[variables('location')]",
+      "properties": {
+        "platformUpdateDomainCount": 12,
+        "platformFaultDomainCount": 3
+      },
+      "tags": {
+        "displayName": "AvailabilitySet"
+      }
+    },
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "name": "[concat(variables('vmProxyName'), variables('publicIPAddressSuffix'))]",
+      "location": "[variables('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "[variables('publicIPAddressType')]",        
+        "dnsSettings": {
+          "domainNameLabel": "[variables('proxyDomainName')]"
+        }
+      }
+    },
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Network/networkInterfaces",
+      "name": "[concat(variables('vmProxyName'), copyindex(1), variables('networkInterfaceName'))]",
+      "location": "[variables('location')]",
+      "copy": {
+        "name": "nicLoopP",
+        "count": "[variables('numberOfProxy')]"
+      },
+      "tags": {
+        "displayName": "NetworkInterface"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Network/loadBalancers/', variables('LBNameProxy'))]"
+      ],
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[variables('subnetRefProxy')]"
+              },
+              "LoadBalancerBackendAddressPools": [
+                {
+                "id": "[concat(variables('lbIDProxy'), '/backendAddressPools/',variables('LBBackendNameProxy'))]"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[variables('LBNameProxy')]",
+      "location": "[variables('location')]",
+      "dependsOn": [
+        "[variables('vnetID')]",
+        "[resourceId('Microsoft.Network/publicIPAddresses',concat(variables('vmProxyName'), variables('publicIPAddressSuffix')))]"
+      ],
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "[variables('LBFrontendNameProxy')]",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',concat(variables('vmProxyName'), variables('publicIPAddressSuffix')))]"
+                }
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('LBBackendNameProxy')]"
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "Name": "es-lbrule-80",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat(variables('lbIDProxy'), '/frontendIpConfigurations/',variables('LBFrontendNameProxy'))]"
+              },
+              "backendAddressPool": {
+                "id": "[concat(variables('lbIDProxy'), '/backendAddressPools/',variables('LBBackendNameProxy'))]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 80,
+              "backendPort": 80,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 5,
+              "probe": {
+                "id": "[concat(resourceId('Microsoft.Network/loadBalancers',variables('LBNameProxy')),'/probes/es-lbprobe-80')]"
+              }
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "es-lbprobe-80",
+            "properties": {
+              "protocol": "Tcp",
+              "port": 80,
+              "intervalInSeconds": 30,
+              "numberOfProbes": 3
+            }
+          }
+        ],
+        "inboundNatRules": [
+            {
+                "name": "ssh0",
+                "properties": {
+                    "provisioningState": "Succeeded",
+                    "frontendIPConfiguration": {
+                        "id": "[concat(variables('lbIDProxy'), '/frontendIpConfigurations/',variables('LBFrontendNameProxy'))]"
+                    },
+                    "frontendPort": 22020,
+                    "backendPort": 22,
+                    "enableFloatingIP": false,
+                    "idleTimeoutInMinutes": 4,
+                    "protocol": "Tcp",
+                    "backendIPConfiguration": {
+                        "id": "[concat(resourceId('Microsoft.Network/networkInterfaces',concat(variables('vmProxyName'), '0', variables('networkInterfaceName'))),'/ipConfigurations/ipconfig1')]"                     
+                    }
+                }
+            }
+        ]                
+      },
+      "tags": {
+        "displayName": "LoadBalancer"
+      }
+    },
+
+        
+     {
+      "apiVersion": "[variables('apiVersion')]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "name": "[concat(variables('vmProxyName'), copyindex(1))]",
+      "location": "[variables('location')]",
+      "copy": {
+        "name": "virtualMachineLoopP",
+        "count": "[variables('numberOfProxy')]"
+      },
+      "tags": {
+        "displayName": "VirtualMachines"
+      },
+      "dependsOn": [
+        "[concat('Microsoft.Storage/storageAccounts/', variables('storageName'))]",
+        "[concat('Microsoft.Network/networkInterfaces/', variables('vmProxyName'), copyindex(1), variables('networkInterfaceName'))]",
+        "[concat('Microsoft.Compute/availabilitySets/', variables('availabilitySetNameProxy'))]"
+      ],
+      "properties": {
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets',variables('availabilitySetNameProxy'))]"
+        },
+        "hardwareProfile": {
+          "vmSize": "[variables('vmSizeProxy')]"
+        },
+        "osProfile": {
+          "computerName": "[concat(variables('vmProxyName'), copyindex(1))]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "[variables('imagePublisher')]",
+            "offer": "[variables('imageOffer')]",
+            "sku": "[variables('imageSku')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "name": "osdisk",
+            "vhd": {
+              "uri": "[concat('http://',variables('storageName'),'.blob.core.windows.net/vhds/', variables('vmProxyName'), copyindex(1), '_osdisk', '.vhd')]"
+            },
+            "caching": "ReadWrite",
+            "createOption": "FromImage"
+          }
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('vmProxyName'), copyindex(1), variables('networkInterfaceName')))]"
+            }
+          ]
+        }
+      }
+    },
+    {
+        "type": "Microsoft.Compute/virtualMachines/extensions",
+        "name": "[concat(variables('vmProxyName'), copyindex(1), '/installelasticsearch')]",
+        "apiVersion": "[variables('apiVersion')]",
+        "location": "[variables('location')]",
+		  "copy": {
+			"name": "virtualMachineExtensionsP",
+			"count": "[variables('numberOfProxy')]"
+		  },
+        "dependsOn": [
+          "[concat('Microsoft.Compute/virtualMachines/', variables('vmProxyName'), copyindex(1))]"
+          ],
+        "properties": {
+          "publisher": "Microsoft.OSTCExtensions",
+          "type": "CustomScriptForLinux",
+          "typeHandlerVersion": "1.4",
+          "settings": {
+            "fileUris": "[variables('installScriptsP')]",
+            "commandToExecute": "[concat('bash ',variables('elasticScriptP'), ' ', parameters('adminUsername'), ' ', variables('proxyFqdn'), ' ', variables('numberOfNodes'), ' ', variables('lbIpAddressES'), ' ', variables('subnetNameWorkersIP'), ' ', variables('storageName'), ' ', listKeys(resourceId('Microsoft.Storage/storageAccounts',variables('storageName')) ,variables('apiVersion')).key1, ' ', copyindex(1))]"
+          }
+        }
+      }
+             
+  ],
+  
+  
+  "outputs": {
+    "resource-group-url": {
+      "type": "string",
+      "value": "[concat('https://ms.portal.azure.com/#asset/HubsExtension/ResourceGroups/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name)]"
+    }
+  }
+}
+
