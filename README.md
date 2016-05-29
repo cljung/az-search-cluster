@@ -68,3 +68,13 @@ POST /shakespeare/line/_search
 </code>
 </pre>
 <img src="https://raw.githubusercontent.com/cljung/az-search-cluster/master/Denmark_rotten.png">
+
+## Removing VMs from the LoadBalancer
+
+In case you need to remove a worker from the load balancer for doing some maintenance on it, I've included the PowerShell script lb-backend.ps1. It can add or remove a VM from the load balancers backend pool.
+
+<pre>
+<code>
+./lb-backend.ps1 remove|add your-rg your-lb your-vm
+</code>
+</pre>
