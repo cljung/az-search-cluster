@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# this script uses jq to parse JSON, so you neet to download it using
+# sudo apt-get install jq
+
 resourceGroupName=""
 loadBalancerName=""
 vmName=""
