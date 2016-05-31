@@ -15,6 +15,8 @@ WorkerNodesCount="1"
 ProxyNodesCount="1"
 subnetNameWorkers="workersubnet"
 subnetNameProxy="proxysubnet"
+storageAccountName=""
+virtualNetworkName=""
 
 while test $# -gt 0
 do
@@ -41,6 +43,14 @@ done
 
 if [ -z "$resourceGroupName" ]; then
   resourceGroupName=$NamePrefix"rg1"
+fi
+
+if [ -z "$storageAccountName" ]; then
+  storageAccountName=$NamePrefix"stg1"
+fi
+
+if [ -z "$virtualNetworkName" ]; then
+  virtualNetworkName=$NamePrefix"vnet1"
 fi
 
 function deleteCluster() {
